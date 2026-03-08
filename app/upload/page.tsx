@@ -64,9 +64,11 @@ export default function UploadPage() {
   const handleProcess = async () => {
     if (files.length === 0) return;
     if (!selectedCompanyId) {
-        setErrorMsg('Please select a target company role first.');
+        setErrorMsg('Please select a company first');
         return;
     }
+    
+    console.log("Company ID:", selectedCompanyId);
     
     setUploading(true);
     setErrorMsg('');
@@ -145,7 +147,7 @@ export default function UploadPage() {
       <div className="space-y-6">
         {/* Company Selector */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center space-x-4">
-            <label className="font-semibold text-slate-700 whitespace-nowrap">Target Role:</label>
+            <label className="font-semibold text-slate-700 whitespace-nowrap">Select Company for this Drive</label>
             <select 
                 className="flex-1 bg-slate-50 border border-slate-300 rounded-lg px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"
                 value={selectedCompanyId}
@@ -153,8 +155,6 @@ export default function UploadPage() {
                 disabled={isBusy}
             >
                 <option value="">-- Select a Company/Role --</option>
-                {/* Fallback mock company if db wasn't populated visually */}
-                <option value="company_test_1">Mock Default Company (Acme Corp)</option>
                 {companies.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                 ))}

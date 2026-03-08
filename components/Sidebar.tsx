@@ -2,17 +2,20 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, UploadCloud, Building2, FileBarChart, LogOut, BrainCircuit } from 'lucide-react';
+import { LayoutDashboard, UploadCloud, Building2, FileBarChart, LogOut, BrainCircuit, Users } from 'lucide-react';
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
+import { useAuth } from '@/components/useAuth';
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { role } = useAuth(); // dynamically get role
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Upload Resumes', href: '/upload', icon: UploadCloud },
     { name: 'Companies', href: '/dashboard/companies', icon: Building2 },
+    ...(role === 'admin' ? [{ name: 'Teachers & Admins', href: '/dashboard/teachers', icon: Users }] : []),
     { name: 'Reports', href: '/dashboard/reports', icon: FileBarChart },
   ];
 

@@ -3,25 +3,59 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Building2, Plus, Loader2 } from 'lucide-react';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function loadCompanies() {
-      try {
-        const res = await fetch('/api/companies');
-        if (res.ok) {
-          const data = await res.json();
-          setCompanies(data.companies || []);
-        }
-      } finally {
-        setLoading(false);
+  async function loadCompanies() {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/companies');
+      if (res.ok) {
+        const data = await res.json();
+        setCompanies(data.companies || []);
       }
+    } finally {
+      setLoading(false);
     }
+  }
+
+  useEffect(() => {
     loadCompanies();
   }, []);
+
+  const removeCompany = async (companyId: string) => {
+    if (!confirm(
+      "Are you sure you want to delete this company? " +
+      "All shortlists for this company will also be deleted."
+    )) return;
+    
+    setLoading(true);
+    try {
+      // Delete company
+      await deleteDoc(doc(db, 'companies', companyId));
+      
+      // Delete all related shortlists
+      const shortlistSnap = await getDocs(
+        query(
+          collection(db, 'shortlists'),
+          where('companyId', '==', companyId)
+        )
+      );
+      for (const d of shortlistSnap.docs) {
+        await deleteDoc(doc(db, 'shortlists', d.id));
+      }
+      
+      // Refresh company list
+      await loadCompanies();
+    } catch (err) {
+      console.error("Failed to remove company", err);
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -65,6 +99,7 @@ export default function CompaniesPage() {
                 <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-slate-900">Req. Skills</th>
                 <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-slate-900">Min LC Solved</th>
                 <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-slate-900">Weights (R/L/G/C)</th>
+                <th scope="col" className="px-3 py-3.5 text-right text-sm font-semibold text-slate-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -95,6 +130,14 @@ export default function CompaniesPage() {
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-500">
                     {company.weights?.resume || 0}% / {company.weights?.leetcode || 0}% / {company.weights?.github || 0}% / {company.weights?.cgpa || 0}%
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-4 text-sm text-right">
+                    <button
+                      onClick={() => removeCompany(company.id)}
+                      className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 transition"
+                    >
+                      Remove
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -5,6 +5,8 @@ import { DownloadCloud, FileText, ChevronDown, ChevronUp, Loader2, Award, Users,
 import * as xlsx from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 export default function DashboardPage() {
   const [companies, setCompanies] = useState<any[]>([]);
@@ -17,35 +19,97 @@ export default function DashboardPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showEligibleOnly, setShowEligibleOnly] = useState(false);
 
-  // Load Companies
+  // Fetch companies for dropdown
+  const fetchCompanies = async () => {
+    const snap = await getDocs(collection(db, 'companies'));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  };
+
+  // Fetch shortlists for selected company
+  const fetchShortlists = async (companyId: string) => {
+    let q;
+    if (companyId) {
+        q = query(
+          collection(db, 'shortlists'),
+          where('companyId', '==', companyId)
+        );
+    } else {
+        q = collection(db, 'shortlists');
+    }
+    const snap = await getDocs(q);
+    const data = snap.docs.map(d => ({ 
+      id: d.id, 
+      ...d.data() 
+    })) as any[];
+    // Sort by totalScore descending
+    return data.sort((a, b) => b.totalScore - a.totalScore);
+  };
+
   useEffect(() => {
-    fetch('/api/companies')
-      .then(res => res.json())
+    fetchCompanies()
       .then(data => {
-        if (data.companies && data.companies.length > 0) {
-          setCompanies(data.companies);
-          setSelectedCompany(data.companies[0].id);
+        if (data && data.length > 0) {
+          setCompanies(data);
+          // Default is empty string now, which fetches all.
         } else {
-            setLoading(false); // No companies exist
+          setLoading(false);
         }
       })
       .catch(console.error);
   }, []);
 
-  // Load Candidates when Company changes
   useEffect(() => {
-    if (!selectedCompany) return;
     setLoading(true);
-    fetch(`/api/dashboard-data?companyId=${selectedCompany}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-            setCandidates(data.candidates);
-            setStats(data.stats);
-        }
-      })
-      .finally(() => setLoading(false));
+    console.log("Selected company:", selectedCompany || "All");
+    
+    fetchShortlists(selectedCompany)
+      .then(shortlists => {
+          console.log("Fetched shortlists:", shortlists);
+          console.log("Shortlists count:", shortlists.length);
+          
+          // Map to display structure
+          const mappedCandidates = shortlists.map(sl => ({
+            rank: sl.rank || 0,
+            studentId: sl.studentId,
+            name: sl.studentName || sl.name || 'Unknown',
+            email: sl.studentEmail || sl.email || '',
+            cgpa: sl.cgpa !== undefined ? sl.cgpa : 0,
+            resumeUrl: sl.resumeUrl || '',
+            githubUsername: sl.githubUsername || '',
+            leetcodeUsername: sl.leetcodeUsername || '',
+            totalScore: sl.totalScore || 0,
+            status: sl.status || 'Unknown',
+            reason: sl.reason || '',
+            companyId: sl.companyId || '',
+            breakdown: {
+               resume: sl.resumeScore || 0,
+               github: sl.githubScore || 0,
+               leetcode: sl.leetcodeScore || 0,
+               cgpa: sl.cgpaScore || 0
+            }
+          }));
+
+          setCandidates(mappedCandidates);
+
+          // Update stats manually
+          const eligibleCount = shortlists.filter(c => c.status === "Recommended" || c.status === "Highly Recommended").length;
+          const avgScore = shortlists.length > 0 ? shortlists.reduce((sum, c) => sum + (c.totalScore || 0), 0) / shortlists.length : 0;
+          const topCandidate = shortlists.length > 0 ? (shortlists[0].studentName || shortlists[0].name || "-") : "-";
+
+          setStats({
+            total: shortlists.length,
+            eligible: eligibleCount,
+            avgScore: avgScore.toFixed(1),
+            top: topCandidate
+          });
+        })
+        .finally(() => setLoading(false));
   }, [selectedCompany]);
+
+  const getCompanyName = (cId: string) => {
+      const c = companies.find(comp => comp.id === cId);
+      return c ? c.name : cId;
+  };
 
   const toggleRow = (studentId: string) => {
     const newSet = new Set(expandedRows);
@@ -81,7 +145,7 @@ export default function DashboardPage() {
         "Name": c.name,
         "Email": c.email,
         "Score": Number(c.totalScore.toFixed(1)),
-        "CGPA": Number(c.cgpa.toFixed(2)),
+        "CGPA": `${Number(c.cgpa.toFixed(1))}/10`,
         "Resume": Number(c.breakdown.resume.toFixed(1)),
         "GitHub": Number(c.breakdown.github.toFixed(1)),
         "LeetCode": Number(c.breakdown.leetcode.toFixed(1)),
@@ -157,7 +221,7 @@ export default function DashboardPage() {
         c.rank.toString(),
         c.name + `\n${c.email}`,
         c.totalScore.toFixed(1),
-        c.cgpa.toFixed(2),
+        `${c.cgpa.toFixed(1)}/10`,
         c.breakdown.resume.toFixed(1),
         c.breakdown.github.toFixed(1),
         c.breakdown.leetcode.toFixed(1),
@@ -195,10 +259,11 @@ export default function DashboardPage() {
               value={selectedCompany}
               onChange={(e) => setSelectedCompany(e.target.value)}
            >
+              <option value="">All Companies / Roles</option>
               {companies.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-              {companies.length === 0 && <option value="">No roles available. Add one.</option>}
+              {companies.length === 0 && <option value="" disabled>No roles available. Add one.</option>}
            </select>
         </div>
         
@@ -242,7 +307,7 @@ export default function DashboardPage() {
         <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
       ) : candidates.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center text-slate-500">
-            No candidates parsed for this role yet. Go to the Upload page to process resumes.
+            No candidates found. <br/>Upload and process resumes first.
         </div>
       ) : (
         <div className="bg-white shadow-sm ring-1 ring-slate-200 sm:rounded-xl overflow-x-auto">
@@ -252,6 +317,7 @@ export default function DashboardPage() {
                 <th scope="col" className="w-12 px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">#</th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Name</th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Score</th>
+                <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Company</th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">CGPA</th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Resume</th>
                 <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">GitHub</th>
@@ -278,8 +344,11 @@ export default function DashboardPage() {
                         <div className="text-lg font-bold text-blue-600">{candidate.totalScore.toFixed(1)}</div>
                         <ScoreBar score={candidate.totalScore} color="bg-blue-600" />
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-600 font-medium">
+                        {!selectedCompany ? getCompanyName(candidate.companyId) : "Matching"}
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-700 font-medium">
-                        {candidate.cgpa.toFixed(2)}
+                        {candidate.cgpa.toFixed(1)}/10
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                         <div className="text-sm text-slate-700 font-medium">{candidate.breakdown.resume.toFixed(1)}</div>

@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
-import { getCompany, createShortlist, updateShortlist, getShortlist } from '@/lib/db';
+import { getCompany, updateShortlist } from '@/lib/db';
 import { calculateScore } from '@/utils/scoring';
+import { db } from '@/lib/firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 /**
  * Helper to process a single resume end-to-end
@@ -24,6 +26,8 @@ async function processSingleResume(resumeUrl: string, company: Record<string, un
     const student = await getStudent(studentId);
     
     if (!student) throw new Error("Student not saved properly");
+    
+    console.log("Student parsed:", student.name, student.id);
 
     // 2. Fetch Profiles (Github + Leetcode)
     const githubUsername = student.githubUsername || "";
@@ -47,6 +51,8 @@ async function processSingleResume(resumeUrl: string, company: Record<string, un
             leetcodeData = profileData.leetcodeStats || {};
         }
     }
+    
+    console.log("Profiles fetched for:", student.name);
 
     // 3. Calculate Score
     const scoreResult = await calculateScore(
@@ -56,22 +62,35 @@ async function processSingleResume(resumeUrl: string, company: Record<string, un
         company
     );
 
-    // 4. Save to Shortlists
-    const shortlistId = `${studentId}_${company.companyId}`;
-    const shortlistPayload = {
-      companyId: String(company.companyId),
-      studentId,
-      rank: 0, // Will be sorted and updated later
-      status: scoreResult.status,
-      reason: scoreResult.reason,
-      totalScore: scoreResult.finalScore
-    };
+    console.log("Score calculated:", scoreResult.finalScore, scoreResult.status);
 
-    const existingShortlist = await getShortlist(shortlistId);
-    if (existingShortlist) {
-        await updateShortlist(shortlistId, shortlistPayload);
-    } else {
-        await createShortlist(shortlistId, shortlistPayload);
+    // 4. Save to Shortlists
+    console.log("Saving shortlist for:", student.name, "companyId:", company.companyId);
+    
+    try {
+      const shortlistRef = await addDoc(
+        collection(db, 'shortlists'),
+        {
+          companyId: String(company.companyId),
+          studentId: studentId,
+          studentName: student.name,
+          studentEmail: student.email,
+          cgpa: student.cgpa,
+          resumeScore: scoreResult.breakdown.resumeScore,
+          githubScore: scoreResult.breakdown.githubScore,
+          leetcodeScore: scoreResult.breakdown.leetcodeScore,
+          cgpaScore: scoreResult.breakdown.cgpaScore,
+          totalScore: scoreResult.finalScore,
+          status: scoreResult.status,
+          reason: scoreResult.reason,
+          rank: 0,
+          createdAt: new Date().toISOString()
+        }
+      );
+      console.log("Shortlist saved! ID:", shortlistRef.id);
+    } catch (error) {
+      console.error("ERROR saving shortlist:", error);
+      throw error;
     }
 
     return {
@@ -94,6 +113,10 @@ export async function POST(req: NextRequest) {
     if (!company) {
         return new Response("Invalid companyId", { status: 404 });
     }
+    
+    console.log("=== PROCESS BATCH STARTED ===");
+    console.log("Company ID:", companyId);
+    console.log("Resume URLs count:", resumeUrls.length);
 
     const total = resumeUrls.length;
     let processed = 0;

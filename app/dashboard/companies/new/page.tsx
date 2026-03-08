@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Save, ArrowLeft, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
+import { db, auth } from '@/lib/firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 export default function NewCompanyPage() {
   const router = useRouter();
@@ -11,7 +13,7 @@ export default function NewCompanyPage() {
   const [error, setError] = useState('');
   
   const [name, setName] = useState('');
-  const [minCgpa, setMinCgpa] = useState('3.0');
+  const [minCgpa, setMinCgpa] = useState('6.0');
   const [minLeetcodeSolved, setMinLeetcodeSolved] = useState('50');
   
   // Tag input
@@ -48,41 +50,66 @@ export default function NewCompanyPage() {
     setWeights(prev => ({ ...prev, [key]: num }));
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: any) => {
     e.preventDefault();
     if (remainingWeight !== 0) {
       setError("Score weights must exactly sum to 100%");
       return;
     }
+    
     if (!name.trim()) {
       setError("Company/Role name is required");
       return;
     }
+    
+    if (skills.length === 0) {
+      setError("Add at least one skill");
+      return;
+    }
 
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
-      // In a real app, send this to an API route to securely save.
-      // We will quickly implement an API route or direct import for this demo.
-      // Or we can just build an API endpoint /api/companies/new
-      const res = await fetch('/api/companies/new', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          minCgpa: parseFloat(minCgpa),
-          minLeetcodeSolved: parseInt(minLeetcodeSolved),
-          requiredSkills: skills,
-          weights
-        })
-      });
+      const user = auth.currentUser;
+      console.log("Current user:", user?.email);
+      console.log("User UID:", user?.uid);
+      
+      if (!user) {
+        setError("Not logged in. Please login again.");
+        return;
+      }
 
-      if (!res.ok) throw new Error("Failed to create company");
+      const companyData = {
+        name: name.trim(),
+        minCgpa: parseFloat(String(minCgpa)) || 6.0,
+        requiredSkills: skills,
+        minLeetcodeSolved: parseInt(String(minLeetcodeSolved)) || 50,
+        weights: {
+          resume: Number(weights.resume) || 35,
+          leetcode: Number(weights.leetcode) || 30,
+          github: Number(weights.github) || 20,
+          cgpa: Number(weights.cgpa) || 15
+        },
+        createdAt: new Date().toISOString(),
+        createdBy: user.email
+      };
+
+      console.log("Attempting to save:", companyData);
+
+      const docRef = await addDoc(
+        collection(db, 'companies'),
+        companyData
+      );
+
+      console.log("SUCCESS! Company ID:", docRef.id);
       router.push('/dashboard/companies');
 
-    } catch (err: any) {
-      setError(err.message);
+    } catch (error: any) {
+      console.error("FULL ERROR:", error);
+      console.error("Company save error:", error);
+      setError(`Failed: ${error.code} - ${error.message}`);
+    } finally {
       setLoading(false);
     }
   };
@@ -99,7 +126,7 @@ export default function NewCompanyPage() {
         </div>
       </div>
 
-      <form onSubmit={handleSave} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="p-8 space-y-8">
           
           {/* Basic Info */}

@@ -81,6 +81,8 @@ ${fullText}`;
           createdAt: new Date().toISOString()
        });
     }
+    
+    console.log("Student saved:", parsedData.name);
 
     // 6. 1500 ms delay
     await new Promise(resolve => setTimeout(resolve, 1500));

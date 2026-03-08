@@ -49,7 +49,7 @@ export async function calculateScore(student: any, githubData: any, leetcodeData
 
   // --- CGPA SCORE ---
   const cgpaRaw = student?.cgpa || 0;
-  const cgpaScore = (cgpaRaw / 10) * 100;
+  const cgpaScore = Math.min((cgpaRaw / 10) * 100, 100);
 
   // --- FINAL TOTAL SCORE ---
   const weights = company?.weights || { resume: 35, leetcode: 30, github: 20, cgpa: 15 };
@@ -61,16 +61,20 @@ export async function calculateScore(student: any, githubData: any, leetcodeData
     (cgpaScore * (weights.cgpa / 100));
 
   // --- STATUS ---
-  let status = "Not Recommended";
+  let status = "";
   if (finalScore >= 80) status = "Highly Recommended";
   else if (finalScore >= 60) status = "Recommended";
+  else status = "Not Recommended";
 
   // --- REASON ---
   const reasons: string[] = [];
   if (missingSkills.length > 0) {
     reasons.push(`Missing skills: ${missingSkills.join(', ')}`);
   }
-  if (cgpaRaw < (company?.minCgpa || 3.0)) {
+  const companyMinCgpa = company?.minCgpa || 6.0;
+  const minCgpaPercent = (companyMinCgpa / 10) * 100;
+
+  if (cgpaScore < minCgpaPercent) {
     reasons.push("CGPA below minimum");
   }
   if (lcPoints < minPointsReq) {
